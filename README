@@ -1,0 +1,34 @@
+project-root/
+├── package.json                           # Dependencies file (instead of requirements.txt)
+├── vite.config.ts                        # Vite configuration
+├── tailwind.config.ts                    # Tailwind CSS config
+├── postcss.config.js                     # PostCSS config
+├── drizzle.config.ts                     # Database config
+├── tsconfig.json                         # TypeScript config
+├── .env                                  # Environment variables (create this)
+├── client/
+│   ├── src/
+│   │   ├── main.tsx                      # Frontend entry point
+│   │   ├── App.tsx                       # Main app component
+│   │   ├── types.d.ts                    # Type definitions
+│   │   ├── components/
+│   │   │   ├── Header.tsx
+│   │   │   ├── Footer.tsx
+│   │   │   ├── ui/                       # UI components (all files)
+│   │   │   ├── admin/                    # Admin components
+│   │   │   ├── drug-verify/              # Verification components
+│   │   │   └── education/                # Education components
+│   │   ├── hooks/                        # Custom React hooks
+│   │   ├── lib/                          # Utility libraries
+│   │   ├── pages/                        # All page components
+│   │   └── index.css                     # Main CSS file
+│   └── index.html                        # HTML template
+├── server/
+│   ├── index.ts                          # Server entry point
+│   ├── routes.ts                         # API routes
+│   ├── auth.ts                           # Authentication logic
+│   ├── db.ts                             # Database connection
+│   ├── storage.ts                        # Data access layer
+│   └── vite.ts                           # Vite integration
+└── shared/
+    └── schema.ts                         # Database schema & types
