@@ -4,7 +4,8 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
+/* Restrict border-color to elements that actually use borders */
+body, button, input, select, textarea {
   border-color: hsl(var(--border));
 }
 
@@ -58,4 +59,3 @@ body {
   --destructive-foreground: 0 0% 98%;
   --ring: 240 4.9% 83.9%;
   --radius: 0.5rem;
-}
