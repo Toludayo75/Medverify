@@ -1,6 +1,8 @@
 import express, { Express } from "express";
-import { createServer as createViteServer, ViteDevServer } from "vite";
+import { createServer as createViteServer } from "vite";
 import { Server } from "http";
+import path from "path";
+import fs from "fs";
 
 export function log(message: string, source = "express") {
   const timestamp = new Date().toLocaleTimeString();
@@ -11,29 +13,21 @@ export async function setupVite(app: Express, server: Server) {
   const vite = await createViteServer({
     server: { middlewareMode: true },
     appType: "spa",
+    root: path.resolve(__dirname, "../client"),
   });
 
-  app.use(vite.ssrFixStacktrace);
   app.use(vite.middlewares);
 
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 
     try {
-      let template = await vite.transformIndexHtml(url, `
-        <!DOCTYPE html>
-        <html lang="en">
-          <head>
-            <meta charset="UTF-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-            <title>MedVerify</title>
-          </head>
-          <body>
-            <div id="root"></div>
-            <script type="module" src="/src/main.tsx"></script>
-          </body>
-        </html>
-      `);
+      let template = fs.readFileSync(
+        path.resolve(__dirname, "../client/index.html"),
+        "utf-8"
+      );
+
+      template = await vite.transformIndexHtml(url, template);
 
       res.status(200).set({ "Content-Type": "text/html" }).end(template);
     } catch (e) {
@@ -44,9 +38,11 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  app.use(express.static("dist/public"));
-  
+  const staticPath = path.resolve(__dirname, "../client/dist");
+
+  app.use(express.static(staticPath));
+
   app.use("*", (req, res) => {
-    res.sendFile("index.html", { root: "dist/public" });
+    res.sendFile(path.join(staticPath, "index.html"));
   });
 }
