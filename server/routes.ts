@@ -1,21 +1,18 @@
-import type { Express, Request, Response, NextFunction } from "express";
-import { createServer, type Server } from "http";
-import { WebSocketServer, WebSocket } from "ws";
+import type { Express } from "express";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { insertDrugSchema, insertBatchSchema, insertReportSchema } from "@shared/schema";
 
-export async function registerRoutes(app: Express): Promise<Server> {
-    app.get("/", (_req, res) => {
+export async function registerRoutes(app: Express) {
+  app.get("/", (_req, res) => {
     res.send("Medverify API is running");
   });
+
   // API route to handle PDF download
   app.get("/api/downloads/safety-guidelines", (req, res) => {
-  // Generate a simple PDF response
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=MedVerify-Drug-Safety-Guidelines.pdf');
-    
-    // A minimal valid PDF file structure
+
     const pdfContent = `%PDF-1.4
 1 0 obj
 << /Type /Catalog
@@ -87,65 +84,52 @@ trailer
 startxref
 728
 %%EOF`;
-    
+
     res.send(pdfContent);
   });
-  // Set up authentication routes
+
   setupAuth(app);
 
-  // Drug verification routes
   app.get("/api/drugs/:nafdacNumber", async (req, res) => {
     try {
       const nafdacNumber = req.params.nafdacNumber;
       const drug = await storage.getDrugByNafdacNumber(nafdacNumber);
-      
+
       if (!drug) {
         return res.status(404).json({ message: "Drug not found" });
       }
-      
-      // Create verification log
+
       const verification = await storage.createVerification({
         drugId: drug.id,
         status: drug.status,
         userId: req.user?.id,
         ipAddress: req.ip,
       });
-      
+
       res.json({ drug, verification });
     } catch (error) {
       res.status(500).json({ message: "Server error during verification" });
     }
   });
-  
+
   app.post("/api/verify", async (req, res) => {
     try {
       const { nafdacNumber, batchNumber } = req.body;
-      
-      console.log("Verifying drug with NAFDAC number:", nafdacNumber);
-      
-      // Find drug
+
       let drug = await storage.getDrugByNafdacNumber(nafdacNumber);
-      
+
       if (!drug) {
-        console.log("Drug not found:", nafdacNumber);
-        
-        // For drugs not in our database, create an actual drug entry 
-        // with counterfeit status so it can be tracked and counted
         try {
-          // Create the drug with counterfeit status
           const dummyDrug = await storage.createDrug({
             nafdacNumber,
-            productName: "Unregistered Drug", 
+            productName: "Unregistered Drug",
             manufacturer: "Unknown",
             dosageForm: "Unknown",
             strength: "",
             status: "counterfeit",
             isBlacklisted: true
           });
-          
-          console.log("Created dummy drug for unregistered NAFDAC:", dummyDrug);
-          
-          // Now create a verification for it
+
           const verification = await storage.createVerification({
             drugId: dummyDrug.id,
             status: 'counterfeit',
@@ -153,9 +137,7 @@ startxref
             ipAddress: req.ip || "",
             location: req.body.location || "",
           });
-          
-          console.log("Created counterfeit verification:", verification);
-          
+
           return res.json({
             counterfeit: true,
             nafdacNumber,
@@ -163,10 +145,7 @@ startxref
             verification,
             message: "This drug is not registered in our database and may be counterfeit"
           });
-        } catch (err) {
-          console.error("Error creating counterfeit drug record:", err);
-          
-          // Fall back to the dummy response if database operation fails
+        } catch {
           return res.json({
             counterfeit: true,
             nafdacNumber,
@@ -179,26 +158,16 @@ startxref
           });
         }
       }
-      
-      console.log("Drug found:", drug);
-      
-      // If batch number is provided, check batch
+
       let batch;
       if (batchNumber) {
         batch = await storage.getBatchByDrugAndBatchNumber(drug.id, batchNumber);
-        if (!batch) {
-          console.log("Batch not found:", batchNumber);
-          // Batch doesn't exist but drug does - consider flagging
-          if (drug.status === 'genuine') {
-            await storage.updateDrug(drug.id, { status: 'flagged' });
-            drug = await storage.getDrugByNafdacNumber(nafdacNumber) as typeof drug;
-          }
-        } else {
-          console.log("Batch found:", batch);
+        if (!batch && drug.status === 'genuine') {
+          await storage.updateDrug(drug.id, { status: 'flagged' });
+          drug = await storage.getDrugByNafdacNumber(nafdacNumber) as typeof drug;
         }
       }
-      
-      // Create verification log (user may be anonymous)
+
       const verification = await storage.createVerification({
         drugId: drug.id,
         batchId: batch?.id || undefined,
@@ -207,403 +176,183 @@ startxref
         ipAddress: req.ip || "",
         location: req.body.location || "",
       });
-      
-      console.log("Verification created:", verification);
-      
-      res.json({ 
+
+      res.json({
         drug,
         batch,
         verification,
-        message: drug.isBlacklisted 
-          ? "This product has been blacklisted and should not be used" 
-          : undefined
+        message: drug.isBlacklisted ? "This product has been blacklisted and should not be used" : undefined
       });
     } catch (error) {
-      console.error("Error during verification:", error);
       res.status(500).json({ message: "Server error during verification" });
     }
   });
-  
-  // Drug reporting routes
+
   app.post("/api/reports", async (req, res) => {
-  try {
-    console.log("Received report data:", req.body);
-    
-    // Map frontend form fields to backend schema fields
-    const mappedData = {
-      ...req.body,
-      suspectedIssue: req.body.reason || "other",
-      description: req.body.details || "No additional details provided",
-      purchaseLocation: req.body.purchaseLocation, // Add this line
-      reason: undefined,
-      details: undefined
-    };
-    
-    // Parse the report data
-    const reportData = insertReportSchema.parse(mappedData);
-    
-    // Add reporter ID if user is authenticated
-    if (req.isAuthenticated()) {
-      reportData.reporterId = req.user.id;
-    }
-    
-    // Check if the drug exists by NAFDAC number
-    if (reportData.nafdacNumber) {
-      const drug = await storage.getDrugByNafdacNumber(reportData.nafdacNumber);
-      if (drug) {
-        reportData.drugId = drug.id;
-        console.log("Found drug for report:", drug);
+    try {
+      const mappedData = {
+        ...req.body,
+        suspectedIssue: req.body.reason || "other",
+        description: req.body.details || "No additional details provided",
+        purchaseLocation: req.body.purchaseLocation,
+        reason: undefined,
+        details: undefined
+      };
+
+      const reportData = insertReportSchema.parse(mappedData);
+
+      if (req.isAuthenticated()) {
+        reportData.reporterId = req.user.id;
+      }
+
+      if (reportData.nafdacNumber) {
+        const drug = await storage.getDrugByNafdacNumber(reportData.nafdacNumber);
+        if (drug) {
+          reportData.drugId = drug.id;
+        }
+      }
+
+      const report = await storage.createReport(reportData);
+
+      res.status(201).json(report);
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(400).json({ message: `Invalid report data: ${error.message}` });
       } else {
-        console.log("Drug not found for NAFDAC number:", reportData.nafdacNumber);
+        res.status(400).json({ message: "Invalid report data" });
       }
-    }
-    
-    // Create the report
-    console.log("Creating report with data:", reportData);
-    const report = await storage.createReport(reportData);
-    console.log("Report created:", report);
-    
-    res.status(201).json(report);
-  } catch (error) {
-    console.error("Error creating report:", error);
-    if (error instanceof Error) {
-      res.status(400).json({ message: `Invalid report data: ${error.message}` });
-    } else {
-      res.status(400).json({ message: "Invalid report data" });
-    }
-  }
-});
-  
-  // User verification and report routes
-  app.get("/api/verifications/user", async (req, res) => {
-    try {
-      if (!req.isAuthenticated()) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-      
-      const verifications = await storage.getVerificationsByUser(req.user.id);
-      res.json(verifications);
-    } catch (error) {
-      res.status(500).json({ message: "Server error" });
-    }
-  });
-  
-  app.get("/api/reports/user", async (req, res) => {
-    try {
-      if (!req.isAuthenticated()) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-      
-      const reports = await storage.getReportsByUser(req.user.id);
-      res.json(reports);
-    } catch (error) {
-      res.status(500).json({ message: "Server error" });
     }
   });
 
-  // Admin routes (protected by role middleware in frontend)
+  app.get("/api/verifications/user", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const verifications = await storage.getVerificationsByUser(req.user.id);
+    res.json(verifications);
+  });
+
+  app.get("/api/reports/user", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const reports = await storage.getReportsByUser(req.user.id);
+    res.json(reports);
+  });
+
   app.get("/api/admin/verifications", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || req.user.role !== 'admin') {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-      
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-      const verifications = await storage.getVerifications(limit);
-      res.json(verifications);
-    } catch (error) {
-      res.status(500).json({ message: "Server error" });
+    if (!req.isAuthenticated() || req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized" });
     }
+
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+    const verifications = await storage.getVerifications(limit);
+    res.json(verifications);
   });
-  
+
   app.get("/api/admin/reports", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || req.user.role !== 'admin') {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-      
-      const status = req.query.status as string | undefined;
-      const reports = await storage.getReports(status);
-      res.json(reports);
-    } catch (error) {
-      res.status(500).json({ message: "Server error" });
+    if (!req.isAuthenticated() || req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized" });
     }
+
+    const status = req.query.status as string | undefined;
+    const reports = await storage.getReports(status);
+    res.json(reports);
   });
-  
+
   app.patch("/api/admin/reports/:id", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || req.user.role !== 'admin') {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-      
-      const reportId = parseInt(req.params.id);
-      const { flagDrug, ...reportUpdate } = req.body;
-      
-      // Get current report to access its drug
-      const currentReport = await storage.getReportById(reportId);
-      if (!currentReport) {
-        return res.status(404).json({ message: "Report not found" });
-      }
-      
-      // Update the report status
-      const report = await storage.updateReport(reportId, reportUpdate);
-      
-      // If flagging is requested and report has an associated drug, flag the drug
-      if (flagDrug === true && currentReport.drugId) {
-        // Get the drug
-        const drug = await storage.getDrug(currentReport.drugId);
-        if (drug) {
-          console.log("Flagging drug:", drug.productName);
-          
-          // Update the drug's status to flagged
-          const updatedDrug = await storage.updateDrug(drug.id, { status: 'flagged' });
-          console.log("Drug flagged:", updatedDrug);
-          
-          try {
-            // Create a verification entry to track this flag action
-            const userId = req.user?.id || null;
-            if (userId) {
-              const verification = await storage.createVerification({
-                drugId: drug.id,
-                status: 'flagged',
-                userId: userId as number,
-                ipAddress: req.ip || '',
-                location: '',
-              });
-              console.log("Flag verification created:", verification);
-            }
-          } catch (err) {
-            console.error("Error creating verification:", err);
-            // Continue even if verification creation fails
+    if (!req.isAuthenticated() || req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    const reportId = parseInt(req.params.id);
+    const { flagDrug, ...reportUpdate } = req.body;
+
+    const currentReport = await storage.getReportById(reportId);
+    if (!currentReport) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+
+    const report = await storage.updateReport(reportId, reportUpdate);
+
+    if (flagDrug === true && currentReport.drugId) {
+      const drug = await storage.getDrug(currentReport.drugId);
+      if (drug) {
+        await storage.updateDrug(drug.id, { status: 'flagged' });
+
+        try {
+          const userId = req.user?.id || null;
+          if (userId) {
+            await storage.createVerification({
+              drugId: drug.id,
+              status: 'flagged',
+              userId: userId as number,
+              ipAddress: req.ip || '',
+              location: '',
+            });
           }
+        } catch {
+          // ignore errors here
         }
       }
-      
-      res.json(report);
-    } catch (error) {
-      res.status(500).json({ message: "Server error" });
     }
+
+    res.json(report);
   });
-  
+
   app.post("/api/admin/drugs", async (req, res) => {
+    if (!req.isAuthenticated() || req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
     try {
-      if (!req.isAuthenticated() || req.user.role !== 'admin') {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-      
       const drugData = insertDrugSchema.parse(req.body);
-      
-      // Check if drug already exists
+
       const existingDrug = await storage.getDrugByNafdacNumber(drugData.nafdacNumber);
       if (existingDrug) {
         return res.status(400).json({ message: "Drug with this NAFDAC number already exists" });
       }
-      
+
       const drug = await storage.createDrug(drugData);
       res.status(201).json(drug);
-    } catch (error) {
+    } catch {
       res.status(400).json({ message: "Invalid drug data" });
     }
   });
-  
+
   app.post("/api/admin/batches", async (req, res) => {
+    if (!req.isAuthenticated() || req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
     try {
-      if (!req.isAuthenticated() || req.user.role !== 'admin') {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-      
       const batchData = insertBatchSchema.parse(req.body);
-      
-      // Check if the drug exists
+
       const drug = await storage.getDrug(batchData.drugId);
       if (!drug) {
         return res.status(404).json({ message: "Drug not found" });
       }
-      
-      // Check if batch already exists
-      const existingBatch = await storage.getBatchByDrugAndBatchNumber(
-        batchData.drugId,
-        batchData.batchNumber
-      );
-      
+
+      const existingBatch = await storage.getBatchByDrugAndBatchNumber(batchData.drugId, batchData.batchNumber);
       if (existingBatch) {
         return res.status(400).json({ message: "Batch already exists for this drug" });
       }
-      
+
       const batch = await storage.createBatch(batchData);
       res.status(201).json(batch);
-    } catch (error) {
+    } catch {
       res.status(400).json({ message: "Invalid batch data" });
     }
   });
 
-  // Get all drugs for admin
   app.get("/api/admin/drugs", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || req.user.role !== 'admin') {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-      
-      const drugs = await storage.getAllDrugs();
-      res.json(drugs);
-    } catch (error) {
-      res.status(500).json({ message: "Server error" });
+    if (!req.isAuthenticated() || req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized" });
     }
+
+    const drugs = await storage.getAllDrugs();
+    res.json(drugs);
   });
-  
-  // Create HTTP server
-  const httpServer = createServer(app);
-  
-  // Create WebSocket server
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-  
-  // Store connected admin clients
-  const adminClients: WebSocket[] = [];
-  
-  wss.on('connection', (ws) => {
-    console.log('WebSocket client connected');
-    
-    // Add message handling
-    ws.on('message', (message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        
-        // Handle admin authentication
-        if (data.type === 'auth' && data.role === 'admin') {
-          console.log('Admin connected to WebSocket');
-          adminClients.push(ws);
-          
-          // Send confirmation
-          ws.send(JSON.stringify({
-            type: 'auth_success',
-            message: 'Admin authentication successful'
-          }));
-          
-          // Send recent notifications immediately (simulate some activity)
-          // This helps admins see notifications immediately after connecting
-          setTimeout(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'verification',
-                title: 'Recent Drug Verification',
-                message: 'A user verified Paracetamol with NAFDAC Number A11-0591',
-                timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-                status: 'genuine',
-                nafdacNumber: 'A11-0591',
-                productName: 'Paracetamol'
-              }));
-            }
-          }, 1000);
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    });
-    
-    // Handle disconnection
-    ws.on('close', () => {
-      const index = adminClients.indexOf(ws);
-      if (index !== -1) {
-        adminClients.splice(index, 1);
-        console.log('Admin client disconnected');
-      }
-    });
-  });
-  
-  // Helper function to broadcast notifications to admin clients
-  const notifyAdmins = (notification: any) => {
-    const message = JSON.stringify(notification);
-    
-    adminClients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
-  };
-  
-  // Modify the routes to send WebSocket notifications
-  
-  // Intercept verification creation to send notification
-  const originalCreateVerification = storage.createVerification;
-  storage.createVerification = async (verification) => {
-    const result = await originalCreateVerification(verification);
-    
-    // Get drug details
-    const drug = await storage.getDrug(verification.drugId);
-    
-    // Notify admins about the verification
-    if (drug) {
-      notifyAdmins({
-        type: 'verification',
-        title: 'New Drug Verification',
-        message: `NAFDAC #${drug.nafdacNumber} (${drug.productName}) was verified`,
-        timestamp: new Date().toISOString(),
-        status: verification.status,
-        nafdacNumber: drug.nafdacNumber,
-        productName: drug.productName
-      });
-    }
-    
-    return result;
-  };
-  
-  // Intercept report creation to send notification
-  const originalCreateReport = storage.createReport;
-  storage.createReport = async (report) => {
-    const result = await originalCreateReport(report);
-    
-    // Get drug details if available
-    let drugDetails = '';
-    if (report.drugId) {
-      try {
-        const drug = await storage.getDrug(report.drugId);
-        if (drug) {
-          drugDetails = ` for ${drug.productName} (NAFDAC #${drug.nafdacNumber})`;
-        }
-      } catch (error) {
-        console.error('Error getting drug details for report notification:', error);
-      }
-    }
-    
-    // Build a more informative message
-    const reportDetails = report.productName ? ` (${report.productName})` : '';
-    
-    // Notify admins about the report
-    notifyAdmins({
-      type: 'report',
-      title: 'New Drug Report Submitted',
-      message: `A user reported suspicious activity${drugDetails}${reportDetails}`,
-      timestamp: new Date().toISOString(),
-      nafdacNumber: report.nafdacNumber,
-      productName: report.productName,
-      status: 'pending'
-    });
-    
-    return result;
-  };
-  
-  // Intercept report update to send notification when status changes
-  const originalUpdateReport = storage.updateReport;
-  storage.updateReport = async (id, reportUpdate) => {
-    // Get the original report before updating
-    const originalReport = await storage.getReportById(id);
-    const result = await originalUpdateReport(id, reportUpdate);
-    
-    // If status was updated, send a notification
-    if (originalReport && reportUpdate.status && originalReport.status !== reportUpdate.status) {
-      notifyAdmins({
-        type: 'report',
-        title: 'Report Status Updated',
-        message: `Report #${id} status changed from "${originalReport.status}" to "${reportUpdate.status}"`,
-        timestamp: new Date().toISOString(),
-        nafdacNumber: originalReport.nafdacNumber,
-        productName: originalReport.productName,
-        status: reportUpdate.status
-      });
-    }
-    
-    return result;
-  };
-  
-  return httpServer;
 }
