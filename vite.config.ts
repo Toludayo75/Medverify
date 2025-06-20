@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default defineConfig({
+  root: path.resolve(__dirname, "client"),  // <---- Add this line back
   plugins: [react()],
   resolve: {
     alias: {
@@ -12,3 +13,4 @@ export default defineConfig({
     extensions: [".js", ".ts", ".jsx", ".tsx", ".json"],
   },
 });
+
