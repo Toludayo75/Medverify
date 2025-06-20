@@ -5,11 +5,10 @@
     "license": "MIT",
     "scripts": {
       "dev": "concurrently \"npm:dev:client\" \"npm:dev:server\"",
-      "dev:client": "vite",
+      "dev:client": "cd client && vite",
       "seed": "tsx seed.ts",
       "dev:server": "tsx server/index.ts",
-      "build": "vite build",
-      "preview": "vite preview",
+      "build": "cd client && npm install && npm run build",
       "start": "tsx server/index.ts"
     },
     "dependencies": {
