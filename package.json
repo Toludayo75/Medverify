@@ -4,11 +4,13 @@
     "type": "module",
     "license": "MIT",
     "scripts": {
-        "dev": "concurrently \"npm:dev:client\" \"npm:dev:server\"",
-        "dev:client": "vite",
-        "dev:server": "tsx server/index.ts",
-        "build": "vite build",
-        "preview": "vite preview"
+      "dev": "concurrently \"npm:dev:client\" \"npm:dev:server\"",
+      "dev:client": "vite",
+      "seed": "tsx seed.ts",
+      "dev:server": "tsx server/index.ts",
+      "build": "vite build",
+      "preview": "vite preview",
+      "start": "tsx server/index.ts"
     },
     "dependencies": {
         "@hookform/resolvers": "^3.10.0",
