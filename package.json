@@ -8,7 +8,7 @@
     "dev:client": "cd client && vite",
     "seed": "tsx seed.ts",
     "dev:server": "tsx server/index.ts",
-    "build": "npm install && npm run build",
+    "build": "vite build --config vite.config.ts",
     "start": "tsx server/index.ts"
   },
     "dependencies": {
