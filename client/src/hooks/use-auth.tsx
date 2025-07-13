@@ -19,6 +19,7 @@ type AuthContextType = {
 type LoginData = Pick<InsertUser, "email" | "password">;
 
 export const AuthContext = createContext<AuthContextType | null>(null);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const {
@@ -42,10 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         title: "Login successful",
         description: `Welcome back, ${user.firstName}!`,
       });
-      
-      // Redirect admin users directly to admin dashboard
-      if (user.role === 'admin') {
-        window.location.href = '/admin';
+
+      if (user.role === "admin") {
+        window.location.href = "/admin";
       }
     },
     onError: (error: Error) => {
@@ -114,10 +114,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useAuth() {
+// ✅ SINGLE function declaration
+const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-}
+};
+
+// ✅ Export cleanly
+export { useAuth };
+export default useAuth;
