@@ -1,4 +1,4 @@
-// vite.config.ts
+  // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -6,7 +6,7 @@ import path from "path";
 export default defineConfig({
   root: path.resolve(__dirname, "client"),
   build: {
-    outDir: path.resolve(__dirname, "dist"), // ⬅️ write to root/dist
+    outDir: "dist", // ✅ relative to client/
     emptyOutDir: true,
   },
   plugins: [react()],
