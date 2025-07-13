@@ -4,9 +4,6 @@ import { setupAuth } from "./auth";
 import { insertDrugSchema, insertBatchSchema, insertReportSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express) {
-  app.get("/", (_req, res) => {
-    res.send("Medverify API is running");
-  });
 
   // API route to handle PDF download
   app.get("/api/downloads/safety-guidelines", (req, res) => {
