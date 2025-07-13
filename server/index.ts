@@ -181,7 +181,6 @@ app.use((req, res, next) => {
     return result;
   };
 
-  log(`NODE_ENV = ${process.env.NODE_ENV}`);
   // Vite setup or static serve
   if (process.env.NODE_ENV !== "production") {
     await setupVite(app, httpServer);
