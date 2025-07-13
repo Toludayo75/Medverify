@@ -1,4 +1,4 @@
-import { useAuth } from "../../hooks/use-auth";
+import useAuth from "hooks/use-auth"; // ✅ cleaner, works anywhere
 import { Loader2, ShieldAlert } from "lucide-react";
 import { Redirect, Route } from "wouter";
 
