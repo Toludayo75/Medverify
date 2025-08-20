@@ -18,4 +18,9 @@ export default defineConfig({
     },
     extensions: [".js", ".ts", ".jsx", ".tsx", ".json"],
   },
+  server: {
+    allowedHosts: [
+      "medverify.onrender.com",  // ✅ allow your Render domain
+    ],
+  },
 });
